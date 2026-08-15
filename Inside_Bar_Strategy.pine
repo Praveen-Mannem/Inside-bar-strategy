@@ -1,0 +1,94 @@
+//@version=6
+strategy("Inside Bar Trading Strategy [NSE Daily/Weekly]", overlay=true, initial_capital=100000, default_qty_type=strategy.percent_of_equity, default_qty_value=10, commission_type=strategy.commission.percent, commission_value=0.05)
+
+// ==========================================
+// 1. INPUT SETTINGS
+// ==========================================
+var string GROUP_PATTERN = "Inside Bar Pattern Settings"
+var string GROUP_TREND   = "Trend Filter Settings"
+var string GROUP_RISK    = "Risk & Order Management"
+var string GROUP_DATES   = "Backtest Date Range"
+
+// Pattern Inputs
+strictIB          = input.bool(true, "Strict Inside Bar (High < High[1] & Low > Low[1])", group=GROUP_PATTERN)
+useConfirmedClose = input.bool(true, "Require Candle CLOSE Above/Below Range (Prevents Fakeouts)", group=GROUP_PATTERN)
+atrBufferMult     = input.float(0.3, "Stop Loss ATR Buffer Multiplier", minval=0.0, maxval=2.0, step=0.1, group=GROUP_PATTERN)
+slType            = input.string("Mother Bar Low/High + ATR", "Stop Loss Level", options=["Mother Bar Low/High + ATR", "50% Midpoint"], group=GROUP_PATTERN)
+
+// Trend Filter Inputs
+useTrendFilter   = input.bool(true, "Use EMA Trend Filter", group=GROUP_TREND)
+emaPeriod        = input.int(50, "EMA Length", minval=1, group=GROUP_TREND)
+requireEmaSlope  = input.bool(true, "Require EMA Slope Alignment", group=GROUP_TREND)
+tradeDirection   = input.string("Both", "Trade Direction", options=["Both", "Long Only", "Short Only"], group=GROUP_TREND)
+
+// Risk & Reward Inputs
+rrRatio       = input.float(2.0, "Risk to Reward Ratio (R:R)", minval=0.5, step=0.1, group=GROUP_RISK)
+riskPercent   = input.float(1.0, "Risk Per Trade (% Equity)", minval=0.1, maxval=10.0, step=0.1, group=GROUP_RISK)
+
+// Date Range Inputs
+useDateFilter = input.bool(true, "Limit Backtest Date Range", group=GROUP_DATES)
+startDate     = input.time(timestamp("2020-01-01 00:00 +0530"), "Start Date", group=GROUP_DATES)
+endDate       = input.time(timestamp("2030-12-31 23:59 +0530"), "End Date", group=GROUP_DATES)
+inDateRange   = not useDateFilter or (time >= startDate and time <= endDate)
+
+// ==========================================
+// 2. INDICATOR & PATTERN CALCULATIONS
+// ==========================================
+ema50 = ta.ema(close, emaPeriod)
+atr14 = ta.atr(14)
+
+bool emaSlopeUp   = requireEmaSlope ? (ema50 >= ema50[3]) : true
+bool emaSlopeDown = requireEmaSlope ? (ema50 <= ema50[3]) : true
+
+bool isUptrend   = useTrendFilter ? (close > ema50 and emaSlopeUp)   : true
+bool isDowntrend = useTrendFilter ? (close < ema50 and emaSlopeDown) : true
+
+calcInsideBar(h0, l0, h1, l1, isStrict) =>
+    isStrict ? (h0 < h1 and l0 > l1) : (h0 <= h1 and l0 >= l1 and (h0 < h1 or l0 > l1))
+
+bool isPrevInsideBar = calcInsideBar(high[1], low[1], high[2], low[2], strictIB)
+
+// CONFIRMED BREAKOUT LOGIC
+bool isBuyBreakout  = isPrevInsideBar and (useConfirmedClose ? (close > high[2] and close > open) : (high > high[2])) and isUptrend
+bool isSellBreakout = isPrevInsideBar and (useConfirmedClose ? (close < low[2] and close < open) : (low < low[2])) and isDowntrend
+
+// Position Sizing based on Risk %
+calcQty(entryP, slP) =>
+    float riskPerShare = math.abs(entryP - slP)
+    float totalEquity  = strategy.equity
+    float riskCapital  = totalEquity * (riskPercent / 100.0)
+    float qty          = (riskPerShare > 0) ? (riskCapital / riskPerShare) : 0.0
+    math.max(1, math.floor(qty))
+
+// ==========================================
+// 3. EXECUTE STRATEGY TRADES
+// ==========================================
+if isBuyBreakout and strategy.position_size == 0 and (tradeDirection == "Both" or tradeDirection == "Long Only") and inDateRange
+    float entryPrice = close
+    float baseSL     = math.min(low[1], low[2])
+    float slPrice    = (slType == "50% Midpoint") ? (high[2] + low[2]) / 2.0 : (baseSL - atr14 * atrBufferMult)
+    float risk       = entryPrice - slPrice
+    float tpPrice    = entryPrice + (risk * rrRatio)
+    float qty        = calcQty(entryPrice, slPrice)
+    
+    strategy.entry("IB Long", strategy.long, qty=qty)
+    strategy.exit("Exit Long", "IB Long", stop=slPrice, limit=tpPrice)
+
+if isSellBreakout and strategy.position_size == 0 and (tradeDirection == "Both" or tradeDirection == "Short Only") and inDateRange
+    float entryPrice = close
+    float baseSL     = math.max(high[1], high[2])
+    float slPrice    = (slType == "50% Midpoint") ? (high[2] + low[2]) / 2.0 : (baseSL + atr14 * atrBufferMult)
+    float risk       = slPrice - entryPrice
+    float tpPrice    = entryPrice - (risk * rrRatio)
+    float qty        = calcQty(entryPrice, slPrice)
+    
+    strategy.entry("IB Short", strategy.short, qty=qty)
+    strategy.exit("Exit Short", "IB Short", stop=slPrice, limit=tpPrice)
+
+// ==========================================
+// 4. VISUAL OVERLAYS & CHART PLOTS
+// ==========================================
+plot(useTrendFilter ? ema50 : na, title="Trend 50 EMA", color=color.new(color.blue, 20), linewidth=2)
+
+plotshape(isBuyBreakout, title="Buy Signal", style=shape.triangleup, location=location.belowbar, color=color.green, size=size.small)
+plotshape(isSellBreakout, title="Sell Signal", style=shape.triangledown, location=location.abovebar, color=color.red, size=size.small)

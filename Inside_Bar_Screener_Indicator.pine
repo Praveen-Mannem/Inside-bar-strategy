@@ -1,0 +1,254 @@
+//@version=6
+indicator("Inside Bar Screener & Indicator [NSE Daily/Weekly]", overlay=true, max_labels_count=50, max_lines_count=50)
+
+// ==========================================
+// 1. INPUT SETTINGS
+// ==========================================
+var string GROUP_PATTERN  = "Inside Bar Pattern Settings"
+var string GROUP_TREND    = "Trend & Fakey Filter Settings"
+var string GROUP_DISPLAY  = "Chart Visuals & Noise Control"
+var string GROUP_SCREENER = "NSE Screener Dashboard Settings"
+
+// Pattern Inputs
+strictIB       = input.bool(true, "Strict Inside Bar (High < High[1] & Low > Low[1])", group=GROUP_PATTERN)
+useConfirmedClose = input.bool(true, "Require Candle CLOSE Above/Below Range (Filters False Breaks)", group=GROUP_PATTERN, tooltip="Only triggers signal if candle CLOSES above Mother Bar High. Prevents fakeout wick traps.")
+atrBufferMult  = input.float(0.3, "Stop Loss ATR Buffer Multiplier", minval=0.0, maxval=2.0, step=0.1, group=GROUP_PATTERN, tooltip="Adds a small ATR buffer below Mother Bar Low so minor wicks don't trigger premature SL.")
+rrRatio        = input.float(2.0, "Risk to Reward Ratio (R:R)", minval=0.5, step=0.1, group=GROUP_PATTERN)
+
+// Trend Filter Inputs
+useTrendFilter = input.bool(true, "Use Trend Filter (EMA 50)", group=GROUP_TREND)
+emaPeriod      = input.int(50, "EMA Length", minval=1, group=GROUP_TREND)
+requireEmaSlope= input.bool(true, "Require EMA Slope Alignment (Strong Trend Only)", group=GROUP_TREND, tooltip="Ensures EMA is sloping UP for Buys and DOWN for Sells to filter sideways choppy markets.")
+
+// Visual Display Settings
+signalMode     = input.string("Breakout Triggers Only (BUY/SELL)", "Chart Signal Mode", options=["Breakout Triggers Only (BUY/SELL)", "Inside Bar Setups Only", "Both"], group=GROUP_DISPLAY)
+showActiveLines= input.bool(true, "Draw Active Buy/SL/Target Lines on Right", group=GROUP_DISPLAY)
+showEmaLine    = input.bool(true, "Show 50 EMA Line", group=GROUP_DISPLAY)
+
+// Screener Display Settings
+showScreener   = input.bool(true, "Enable On-Chart Screener Table", group=GROUP_SCREENER)
+tablePos       = input.string("Top Right", "Screener Table Position", options=["Top Right", "Top Left", "Bottom Right", "Bottom Left"], group=GROUP_SCREENER)
+textSize       = input.string("Small", "Table Text Size", options=["Tiny", "Small", "Normal"], group=GROUP_SCREENER)
+screenerTF     = input.string("Chart Timeframe", "Screener Timeframe Mode", options=["Chart Timeframe", "Daily (D)", "Weekly (W)"], group=GROUP_SCREENER)
+
+// Top 20 NSE Stocks
+sym01 = input.symbol("NSE:RELIANCE",   "Stock 01", group=GROUP_SCREENER)
+sym02 = input.symbol("NSE:TCS",        "Stock 02", group=GROUP_SCREENER)
+sym03 = input.symbol("NSE:INFY",       "Stock 03", group=GROUP_SCREENER)
+sym04 = input.symbol("NSE:HDFCBANK",   "Stock 04", group=GROUP_SCREENER)
+sym05 = input.symbol("NSE:ICICIBANK",  "Stock 05", group=GROUP_SCREENER)
+sym06 = input.symbol("NSE:SBIN",       "Stock 06", group=GROUP_SCREENER)
+sym07 = input.symbol("NSE:BHARTIARTL", "Stock 07", group=GROUP_SCREENER)
+sym08 = input.symbol("NSE:ITC",        "Stock 08", group=GROUP_SCREENER)
+sym09 = input.symbol("NSE:KOTAKBANK",  "Stock 09", group=GROUP_SCREENER)
+sym10 = input.symbol("NSE:LT",         "Stock 10", group=GROUP_SCREENER)
+sym11 = input.symbol("NSE:HINDUNILVR", "Stock 11", group=GROUP_SCREENER)
+sym12 = input.symbol("NSE:AXISBANK",   "Stock 12", group=GROUP_SCREENER)
+sym13 = input.symbol("NSE:TATAMOTORS", "Stock 13", group=GROUP_SCREENER)
+sym14 = input.symbol("NSE:MARUTI",     "Stock 14", group=GROUP_SCREENER)
+sym15 = input.symbol("NSE:SUNPHARMA",  "Stock 15", group=GROUP_SCREENER)
+sym16 = input.symbol("NSE:TATASTEEL",  "Stock 16", group=GROUP_SCREENER)
+sym17 = input.symbol("NSE:BAJFINANCE", "Stock 17", group=GROUP_SCREENER)
+sym18 = input.symbol("NSE:ASIANPAINT", "Stock 18", group=GROUP_SCREENER)
+sym19 = input.symbol("NSE:NIFTY",      "Stock 19", group=GROUP_SCREENER)
+sym20 = input.symbol("NSE:BANKNIFTY", "Stock 20", group=GROUP_SCREENER)
+
+// ==========================================
+// 2. ROBUST PATTERN & FAKEY FILTER LOGIC
+// ==========================================
+ema50 = ta.ema(close, emaPeriod)
+atr14 = ta.atr(14)
+
+// Strong Trend Filters (filters out choppy rangebound markets like Cipla sideways zones)
+bool emaSlopeUp   = requireEmaSlope ? (ema50 >= ema50[3]) : true
+bool emaSlopeDown = requireEmaSlope ? (ema50 <= ema50[3]) : true
+
+bool isUptrend   = useTrendFilter ? (close > ema50 and emaSlopeUp)   : true
+bool isDowntrend = useTrendFilter ? (close < ema50 and emaSlopeDown) : true
+
+calcInsideBar(h0, l0, h1, l1, isStrict) =>
+    isStrict ? (h0 < h1 and l0 > l1) : (h0 <= h1 and l0 >= l1 and (h0 < h1 or l0 > l1))
+
+// Inside Bar Setup on bar[1] (Mother bar is bar[2])
+bool isPrevInsideBar = calcInsideBar(high[1], low[1], high[2], low[2], strictIB)
+
+// CONFIRMED BREAKOUT LOGIC (Prevents Fakeout Wicks)
+// For Buy: Candle MUST CLOSE above Mother Bar High AND be a Bullish Green Candle (close > open)
+bool isBuyBreakout  = isPrevInsideBar and (useConfirmedClose ? (close > high[2] and close > open) : (high > high[2])) and isUptrend
+
+// For Sell: Candle MUST CLOSE below Mother Bar Low AND be a Bearish Red Candle (close < open)
+bool isSellBreakout = isPrevInsideBar and (useConfirmedClose ? (close < low[2] and close < open) : (low < low[2])) and isDowntrend
+
+// Current bar Inside Bar Setup (Consolidation)
+bool isCurrentIB = calcInsideBar(high, low, high[1], low[1], strictIB)
+
+plot(showEmaLine and useTrendFilter ? ema50 : na, title="Trend 50 EMA", color=color.new(color.blue, 20), linewidth=2)
+
+// ==========================================
+// 3. ACCURATE TRADE LEVELS & LINES
+// ==========================================
+var line entryLine  = na
+var line slLine     = na
+var line tpLine     = na
+
+var label entryLabel = na
+var label slLabel    = na
+var label tpLabel    = na
+
+// 1. CONFIRMED BUY BREAKOUT SIGNAL
+if isBuyBreakout and (signalMode == "Breakout Triggers Only (BUY/SELL)" or signalMode == "Both")
+    float entryP = close
+    // SL below minimum of IB and Mother Bar + ATR buffer to protect against wick hunting
+    float baseSL = math.min(low[1], low[2])
+    float slP    = baseSL - (atr14 * atrBufferMult)
+    float risk   = entryP - slP
+    float tpP    = entryP + (risk * rrRatio)
+
+    string labelTxt = "🚀 CONFIRMED BUY\nEntry: " + str.tostring(entryP, "#.##") + 
+                      "\nSL: " + str.tostring(slP, "#.##") + 
+                      "\nTarget: " + str.tostring(tpP, "#.##")
+    
+    label.new(bar_index, low, text=labelTxt, style=label.style_label_up, 
+              color=color.green, textcolor=color.white, size=size.small)
+
+    if showActiveLines
+        line.delete(entryLine), line.delete(slLine), line.delete(tpLine)
+        label.delete(entryLabel), label.delete(slLabel), label.delete(tpLabel)
+        
+        entryLine  := line.new(bar_index - 2, entryP, bar_index + 15, entryP, color=color.blue, width=2, style=line.style_dashed)
+        slLine     := line.new(bar_index - 2, slP,    bar_index + 15, slP,    color=color.red,  width=2, style=line.style_solid)
+        tpLine     := line.new(bar_index - 2, tpP,    bar_index + 15, tpP,    color=color.green,width=2, style=line.style_solid)
+        
+        entryLabel := label.new(bar_index + 15, entryP, "BUY @ " + str.tostring(entryP, "#.##"), color=color.blue, textcolor=color.white, style=label.style_label_left, size=size.small)
+        slLabel    := label.new(bar_index + 15, slP,    "SL @ " + str.tostring(slP, "#.##"),   color=color.red,  textcolor=color.white, style=label.style_label_left, size=size.small)
+        tpLabel    := label.new(bar_index + 15, tpP,    "Target @ " + str.tostring(tpP, "#.##"), color=color.green, textcolor=color.white, style=label.style_label_left, size=size.small)
+
+// 2. CONFIRMED SELL BREAKOUT SIGNAL
+if isSellBreakout and (signalMode == "Breakout Triggers Only (BUY/SELL)" or signalMode == "Both")
+    float entryP = close
+    float baseSL = math.max(high[1], high[2])
+    float slP    = baseSL + (atr14 * atrBufferMult)
+    float risk   = slP - entryP
+    float tpP    = entryP - (risk * rrRatio)
+
+    string labelTxt = "🔻 CONFIRMED SELL\nEntry: " + str.tostring(entryP, "#.##") + 
+                      "\nSL: " + str.tostring(slP, "#.##") + 
+                      "\nTarget: " + str.tostring(tpP, "#.##")
+    
+    label.new(bar_index, high, text=labelTxt, style=label.style_label_down, 
+              color=color.red, textcolor=color.white, size=size.small)
+
+    if showActiveLines
+        line.delete(entryLine), line.delete(slLine), line.delete(tpLine)
+        label.delete(entryLabel), label.delete(slLabel), label.delete(tpLabel)
+        
+        entryLine  := line.new(bar_index - 2, entryP, bar_index + 15, entryP, color=color.blue, width=2, style=line.style_dashed)
+        slLine     := line.new(bar_index - 2, slP,    bar_index + 15, slP,    color=color.red,  width=2, style=line.style_solid)
+        tpLine     := line.new(bar_index - 2, tpP,    bar_index + 15, tpP,    color=color.green,width=2, style=line.style_solid)
+        
+        entryLabel := label.new(bar_index + 15, entryP, "SELL @ " + str.tostring(entryP, "#.##"), color=color.blue, textcolor=color.white, style=label.style_label_left, size=size.small)
+        slLabel    := label.new(bar_index + 15, slP,    "SL @ " + str.tostring(slP, "#.##"),     color=color.red,  textcolor=color.white, style=label.style_label_left, size=size.small)
+        tpLabel    := label.new(bar_index + 15, tpP,    "Target @ " + str.tostring(tpP, "#.##"), color=color.green, textcolor=color.white, style=label.style_label_left, size=size.small)
+
+// Small Dot for Inside Bar Setup (Consolidation)
+plotshape(isCurrentIB and (signalMode == "Inside Bar Setups Only" or signalMode == "Both"), title="Inside Bar Setup", style=shape.circle, location=location.abovebar, color=color.yellow, size=size.tiny)
+
+// ==========================================
+// 4. MULTI-SYMBOL SCREENER DASHBOARD
+// ==========================================
+getSymbolData(sym, tf) =>
+    [sHigh, sLow, sClose, sOpen, sHigh1, sLow1, sHigh2, sLow2, sEma, sEma3, sAtr] = request.security(sym, tf, [high, low, close, open, high[1], low[1], high[2], low[2], ta.ema(close, emaPeriod), ta.ema(close, emaPeriod)[3], ta.atr(14)])
+    
+    bool ibPrev = strictIB ? (sHigh1 < sHigh2 and sLow1 > sLow2) : (sHigh1 <= sHigh2 and sLow1 >= sLow2)
+    bool isIB   = strictIB ? (sHigh < sHigh1 and sLow > sLow1) : (sHigh <= sHigh1 and sLow >= sLow1)
+    
+    bool slopeUp   = requireEmaSlope ? (sEma >= sEma3) : true
+    bool slopeDown = requireEmaSlope ? (sEma <= sEma3) : true
+    
+    bool upTrend   = useTrendFilter ? (sClose > sEma and slopeUp)   : true
+    bool downTrend = useTrendFilter ? (sClose < sEma and slopeDown) : true
+
+    bool bullBreak = ibPrev and (useConfirmedClose ? (sClose > sHigh2 and sClose > sOpen) : (sHigh > sHigh2)) and upTrend
+    bool bearBreak = ibPrev and (useConfirmedClose ? (sClose < sLow2 and sClose < sOpen) : (sLow < sLow2))   and downTrend
+
+    string status = "No Pattern"
+    color  bgColor = color.new(color.gray, 80)
+    color  txtColor = color.white
+
+    if bullBreak
+        status  := "🚀 CONFIRMED BUY"
+        bgColor := color.new(color.green, 20)
+    else if bearBreak
+        status  := "🔻 CONFIRMED SELL"
+        bgColor := color.new(color.red, 20)
+    else if isIB
+        status  := upTrend ? "SETUP (Uptrend)" : (downTrend ? "SETUP (Downtrend)" : "SETUP (Choppy)")
+        bgColor := color.new(color.orange, 30)
+    else
+        status  := "Consolidating"
+        bgColor := color.new(color.gray, 85)
+        txtColor := color.gray
+
+    [status, bgColor, txtColor]
+
+getTablePosition(posStr) =>
+    switch posStr
+        "Top Right"    => position.top_right
+        "Top Left"     => position.top_left
+        "Bottom Right" => position.bottom_right
+        "Bottom Left"  => position.bottom_left
+        => position.top_right
+
+getTableTextSize(szStr) =>
+    switch szStr
+        "Tiny"  => size.tiny
+        "Small" => size.small
+        => size.normal
+
+populateRow(tbl, rowIdx, symStr, targetTF, txtSz) =>
+    if str.length(symStr) > 0
+        string cleanTicker = str.replace(symStr, "NSE:", "")
+        [status, bgCol, txtCol] = getSymbolData(symStr, targetTF)
+        table.cell(tbl, 0, rowIdx, cleanTicker, bgcolor=color.new(color.navy, 40), text_color=color.white, text_size=txtSz)
+        table.cell(tbl, 1, rowIdx, targetTF, bgcolor=color.new(color.navy, 60), text_color=color.white, text_size=txtSz)
+        table.cell(tbl, 2, rowIdx, status, bgcolor=bgCol, text_color=txtCol, text_size=txtSz)
+
+var table screenTable = na
+
+if showScreener and barstate.islast
+    string targetTF = (screenerTF == "Daily (D)") ? "D" : ((screenerTF == "Weekly (W)") ? "W" : timeframe.period)
+    string txtSz = getTableTextSize(textSize)
+    
+    screenTable := table.new(position=getTablePosition(tablePos), columns=3, rows=21, 
+                             bgcolor=color.new(color.black, 10), border_width=1, border_color=color.gray)
+    
+    table.cell(screenTable, 0, 0, "NSE Stock", bgcolor=color.blue, text_color=color.white, text_size=txtSz)
+    table.cell(screenTable, 1, 0, "Timeframe", bgcolor=color.blue, text_color=color.white, text_size=txtSz)
+    table.cell(screenTable, 2, 0, "Trade Signal Status", bgcolor=color.blue, text_color=color.white, text_size=txtSz)
+
+    populateRow(screenTable, 1,  sym01, targetTF, txtSz)
+    populateRow(screenTable, 2,  sym02, targetTF, txtSz)
+    populateRow(screenTable, 3,  sym03, targetTF, txtSz)
+    populateRow(screenTable, 4,  sym04, targetTF, txtSz)
+    populateRow(screenTable, 5,  sym05, targetTF, txtSz)
+    populateRow(screenTable, 6,  sym06, targetTF, txtSz)
+    populateRow(screenTable, 7,  sym07, targetTF, txtSz)
+    populateRow(screenTable, 8,  sym08, targetTF, txtSz)
+    populateRow(screenTable, 9,  sym09, targetTF, txtSz)
+    populateRow(screenTable, 10, sym10, targetTF, txtSz)
+    populateRow(screenTable, 11, sym11, targetTF, txtSz)
+    populateRow(screenTable, 12, sym12, targetTF, txtSz)
+    populateRow(screenTable, 13, sym13, targetTF, txtSz)
+    populateRow(screenTable, 14, sym14, targetTF, txtSz)
+    populateRow(screenTable, 15, sym15, targetTF, txtSz)
+    populateRow(screenTable, 16, sym16, targetTF, txtSz)
+    populateRow(screenTable, 17, sym17, targetTF, txtSz)
+    populateRow(screenTable, 18, sym18, targetTF, txtSz)
+    populateRow(screenTable, 19, sym19, targetTF, txtSz)
+    populateRow(screenTable, 20, sym20, targetTF, txtSz)
+
+// ==========================================
+// 5. ACCURATE ALERTS
+// ==========================================
+alertcondition(isBuyBreakout, title="🚀 CONFIRMED BUY BREAKOUT", message="[NSE Trade Alert] CONFIRMED BUY on {{ticker}}! Entry: {{close}}.")
+alertcondition(isSellBreakout, title="🔻 CONFIRMED SELL BREAKDOWN", message="[NSE Trade Alert] CONFIRMED SELL on {{ticker}}! Entry: {{close}}.")
