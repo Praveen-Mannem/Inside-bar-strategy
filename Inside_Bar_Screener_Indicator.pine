@@ -4,11 +4,11 @@ indicator("Inside Bar Screener & Indicator [NSE Daily/Weekly]", overlay=true, ma
 // ==========================================
 // 1. INPUT SETTINGS
 // ==========================================
-var string GROUP_PATTERN  = "Inside Bar Pattern Settings"
-var string GROUP_TREND    = "Trend & Fakey Filter Settings"
-var string GROUP_QUALITY  = "Signal Quality Filters (Reduce Noise)"
-var string GROUP_DISPLAY  = "Chart Visuals & Noise Control"
-var string GROUP_SCREENER = "NSE Screener Dashboard Settings"
+string GROUP_PATTERN  = "Inside Bar Pattern Settings"
+string GROUP_TREND    = "Trend & Fakey Filter Settings"
+string GROUP_QUALITY  = "Signal Quality Filters (Reduce Noise)"
+string GROUP_DISPLAY  = "Chart Visuals & Noise Control"
+string GROUP_SCREENER = "NSE Screener Dashboard Settings"
 
 // Pattern Inputs
 strictIB       = input.bool(true, "Strict Inside Bar (High < High[1] & Low > Low[1])", group=GROUP_PATTERN)
