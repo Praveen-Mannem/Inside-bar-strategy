@@ -6,6 +6,7 @@ indicator("Inside Bar Screener & Indicator [NSE Daily/Weekly]", overlay=true, ma
 // ==========================================
 var string GROUP_PATTERN  = "Inside Bar Pattern Settings"
 var string GROUP_TREND    = "Trend & Fakey Filter Settings"
+var string GROUP_QUALITY  = "Signal Quality Filters (Reduce Noise)"
 var string GROUP_DISPLAY  = "Chart Visuals & Noise Control"
 var string GROUP_SCREENER = "NSE Screener Dashboard Settings"
 
@@ -19,6 +20,15 @@ rrRatio        = input.float(2.0, "Risk to Reward Ratio (R:R)", minval=0.5, step
 useTrendFilter = input.bool(true, "Use Trend Filter (EMA 50)", group=GROUP_TREND)
 emaPeriod      = input.int(50, "EMA Length", minval=1, group=GROUP_TREND)
 requireEmaSlope= input.bool(true, "Require EMA Slope Alignment (Strong Trend Only)", group=GROUP_TREND, tooltip="Ensures EMA is sloping UP for Buys and DOWN for Sells to filter sideways choppy markets.")
+emaSlopeLookback = input.int(5, "EMA Slope Lookback (bars)", minval=1, maxval=20, group=GROUP_TREND, tooltip="Higher = stricter trend filter. Default 5 bars is good for daily. Use 3 for weekly.")
+
+// Signal Quality Filter Inputs
+useCooldown      = input.bool(true,  "Enable Signal Cooldown (No Repeat Signals)", group=GROUP_QUALITY, tooltip="Prevents multiple signals firing back-to-back. Only 1 signal per cooldown period.")
+cooldownBars     = input.int(10,     "Cooldown Period (bars)",  minval=3, maxval=50, group=GROUP_QUALITY, tooltip="Minimum bars between signals. 10 bars = ~2 weeks on daily.")
+useVolumeFilter  = input.bool(true,  "Require Above-Average Volume on Breakout", group=GROUP_QUALITY, tooltip="Breakout candle volume must exceed the N-bar average. Filters low-conviction breakouts.")
+volumeMA         = input.int(20,     "Volume MA Period (bars)", minval=5, maxval=50, group=GROUP_QUALITY)
+useMotherBarSize = input.bool(true,  "Require Significant Mother Bar Size (ATR Filter)", group=GROUP_QUALITY, tooltip="Mother bar range must be at least N x ATR. Ignores tiny, meaningless inside bars.")
+motherBarMult    = input.float(0.8,  "Minimum Mother Bar Size (x ATR)", minval=0.2, maxval=3.0, step=0.1, group=GROUP_QUALITY, tooltip="0.8 = mother bar must be at least 80% of average ATR. Increase to filter more aggressively.")
 
 // Visual Display Settings
 signalMode     = input.string("Breakout Triggers Only (BUY/SELL)", "Chart Signal Mode", options=["Breakout Triggers Only (BUY/SELL)", "Inside Bar Setups Only", "Both"], group=GROUP_DISPLAY)
@@ -58,10 +68,11 @@ sym20 = input.symbol("NSE:BANKNIFTY", "Stock 20", group=GROUP_SCREENER)
 // ==========================================
 ema50 = ta.ema(close, emaPeriod)
 atr14 = ta.atr(14)
+volMA = ta.sma(volume, volumeMA)
 
-// Strong Trend Filters (filters out choppy rangebound markets like Cipla sideways zones)
-bool emaSlopeUp   = requireEmaSlope ? (ema50 >= ema50[3]) : true
-bool emaSlopeDown = requireEmaSlope ? (ema50 <= ema50[3]) : true
+// --- FILTER 1: Stronger EMA Slope (uses user-defined lookback, not hardcoded 3)
+bool emaSlopeUp   = requireEmaSlope ? (ema50 > ema50[emaSlopeLookback]) : true
+bool emaSlopeDown = requireEmaSlope ? (ema50 < ema50[emaSlopeLookback]) : true
 
 bool isUptrend   = useTrendFilter ? (close > ema50 and emaSlopeUp)   : true
 bool isDowntrend = useTrendFilter ? (close < ema50 and emaSlopeDown) : true
@@ -72,12 +83,29 @@ calcInsideBar(h0, l0, h1, l1, isStrict) =>
 // Inside Bar Setup on bar[1] (Mother bar is bar[2])
 bool isPrevInsideBar = calcInsideBar(high[1], low[1], high[2], low[2], strictIB)
 
+// --- FILTER 2: Mother Bar must be large enough to be meaningful
+bool motherBarBigEnough = useMotherBarSize ? ((high[2] - low[2]) >= atr14 * motherBarMult) : true
+
+// --- FILTER 3: Volume — breakout candle must have above-average volume
+bool volumeOK = useVolumeFilter ? (volume > volMA) : true
+
 // CONFIRMED BREAKOUT LOGIC (Prevents Fakeout Wicks)
 // For Buy: Candle MUST CLOSE above Mother Bar High AND be a Bullish Green Candle (close > open)
-bool isBuyBreakout  = isPrevInsideBar and (useConfirmedClose ? (close > high[2] and close > open) : (high > high[2])) and isUptrend
+bool rawBuyBreakout  = isPrevInsideBar and (useConfirmedClose ? (close > high[2] and close > open) : (high > high[2])) and isUptrend and motherBarBigEnough and volumeOK
 
 // For Sell: Candle MUST CLOSE below Mother Bar Low AND be a Bearish Red Candle (close < open)
-bool isSellBreakout = isPrevInsideBar and (useConfirmedClose ? (close < low[2] and close < open) : (low < low[2])) and isDowntrend
+bool rawSellBreakout = isPrevInsideBar and (useConfirmedClose ? (close < low[2] and close < open) : (low < low[2])) and isDowntrend and motherBarBigEnough and volumeOK
+
+// --- FILTER 4: Signal Cooldown — prevent back-to-back signals
+var int lastSignalBar = -999
+bool cooldownOK = useCooldown ? (bar_index - lastSignalBar >= cooldownBars) : true
+
+bool isBuyBreakout  = rawBuyBreakout  and cooldownOK
+bool isSellBreakout = rawSellBreakout and cooldownOK
+
+// Update cooldown tracker when a signal fires
+if isBuyBreakout or isSellBreakout
+    lastSignalBar := bar_index
 
 // Current bar Inside Bar Setup (Consolidation)
 bool isCurrentIB = calcInsideBar(high, low, high[1], low[1], strictIB)
