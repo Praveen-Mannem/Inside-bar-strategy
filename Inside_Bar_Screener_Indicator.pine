@@ -6,6 +6,7 @@ indicator("Inside Bar Screener & Indicator [NSE Daily/Weekly]", overlay=true, ma
 // ==========================================
 string GROUP_PATTERN  = "Inside Bar Pattern Settings"
 string GROUP_TREND    = "Trend & Fakey Filter Settings"
+string GROUP_HTF      = "Higher Timeframe (HTF) Confluence Filter"
 string GROUP_QUALITY  = "Signal Quality Filters (Reduce Noise)"
 string GROUP_DISPLAY  = "Chart Visuals & Noise Control"
 string GROUP_SCREENER = "NSE Screener Dashboard Settings"
@@ -19,11 +20,22 @@ rrRatio        = input.float(2.0, "Risk to Reward Ratio (R:R)", minval=0.5, step
 // Trend Filter Inputs
 useTrendFilter   = input.bool(true, "Use Trend Filter (EMA 50)", group=GROUP_TREND)
 emaPeriod        = input.int(50, "Slow EMA Length (Trend)", minval=1, group=GROUP_TREND)
-emaPeriodFast    = input.int(20, "Fast EMA Length (Signal)", minval=1, group=GROUP_TREND, tooltip="Used for Dual EMA cross filter. Fast EMA crossing above Slow EMA = uptrend. Below = downtrend.")
-useDualEmaBuy    = input.bool(false, "Dual EMA Filter for BUY Signals", group=GROUP_TREND, tooltip="OFF (default): Allows BUY signals even when EMA20 < EMA50. This catches reversal breakouts after a downtrend (inside bar breaks UP after a red mother bar). Turn ON only if you want strict trend-following buys only.")
-useDualEmaSell   = input.bool(true,  "Dual EMA Filter for SELL Signals", group=GROUP_TREND, tooltip="ON (default): Blocks SELL signals when EMA20 > EMA50. Prevents false sells during uptrend pullbacks (like Cipla). SELL only fires in confirmed death-cross zone.")
-requireEmaSlope  = input.bool(true, "Require EMA Slope Alignment (Strong Trend Only)", group=GROUP_TREND, tooltip="Ensures Slow EMA is sloping UP for Buys and DOWN for Sells to filter sideways choppy markets.")
-emaSlopeLookback = input.int(3, "EMA Slope Lookback (bars)", minval=1, maxval=20, group=GROUP_TREND, tooltip="Higher = stricter trend filter. 3 bars works well for both daily and weekly.")
+emaPeriodFast    = input.int(20, "Fast EMA Length (Signal)", minval=1, group=GROUP_TREND, tooltip="Used for Dual EMA cross filter.")
+useDualEmaBuy    = input.bool(false, "Dual EMA Filter for BUY Signals", group=GROUP_TREND, tooltip="OFF (default): Allows reversal BUY breakouts even when EMA20 < EMA50.")
+useDualEmaSell   = input.bool(true,  "Dual EMA Filter for SELL Signals", group=GROUP_TREND, tooltip="ON (default): Blocks SELL when EMA20 > EMA50 — prevents false sells in uptrends.")
+requireEmaSlope  = input.bool(true, "Require EMA Slope Alignment", group=GROUP_TREND, tooltip="Ensures Slow EMA is sloping UP for Buys and DOWN for Sells.")
+emaSlopeLookback = input.int(3, "EMA Slope Lookback (bars)", minval=1, maxval=20, group=GROUP_TREND)
+
+// Higher Timeframe Confluence Filter
+// CRITICAL: When on Daily chart, checks Weekly trend before allowing any signal.
+// Prevents conflicting signals (Weekly SELL + Daily BUY on same stock).
+useHTFFilter  = input.bool(true, "Enable HTF Confluence (Weekly confirms Daily)", group=GROUP_HTF,
+               tooltip="RECOMMENDED ON. When on Daily chart: BUY only if Weekly trend is bullish. SELL only if Weekly trend is bearish. Stops conflicting signals across timeframes.")
+htfTimeframe  = input.timeframe("W", "Higher Timeframe to Check", group=GROUP_HTF,
+               tooltip="Default W (Weekly) when trading Daily. Change to M (Monthly) if trading Weekly.")
+htfEmaSlow    = input.int(50, "HTF Slow EMA (Trend)", minval=1, group=GROUP_HTF)
+htfEmaFast    = input.int(20, "HTF Fast EMA (Signal)", minval=1, group=GROUP_HTF,
+               tooltip="HTF BUY zone: Fast EMA > Slow EMA. HTF SELL zone: Fast EMA < Slow EMA.")
 
 // Signal Quality Filter Inputs
 // TIP: For DAILY charts, tighten these to reduce noise.
@@ -76,19 +88,33 @@ ema20     = ta.ema(close, emaPeriodFast)
 atr14     = ta.atr(14)
 volMA     = ta.sma(volume, volumeMA)
 
-// --- FILTER 1: Dual EMA Cross — SEPARATE toggles for BUY and SELL
-// BUY:  Default OFF → allows reversal buys after downtrends (bearish mother bar + upside breakout)
-// SELL: Default ON  → blocks false sells during uptrend pullbacks (Cipla-type false signal fix)
+// --- HTF Confluence: fetch Weekly (or chosen HTF) EMA values
+// This is the key fix — daily signals MUST agree with the weekly trend
+[htfClose, htfEmaSlowVal, htfEmaFastVal] = request.security(
+    syminfo.tickerid, htfTimeframe,
+    [close, ta.ema(close, htfEmaSlow), ta.ema(close, htfEmaFast)],
+    lookahead=barmerge.lookahead_off)
+
+bool htfBullish = htfClose > htfEmaSlowVal and htfEmaFastVal > htfEmaSlowVal   // HTF uptrend
+bool htfBearish = htfClose < htfEmaSlowVal and htfEmaFastVal < htfEmaSlowVal   // HTF downtrend
+
+// When HTF filter is ON and we are on a lower timeframe than the HTF:
+// BUY  only fires if HTF is bullish (or neutral — not confirmed bearish)
+// SELL only fires if HTF is bearish (or neutral — not confirmed bullish)
+bool htfAllowBuy  = useHTFFilter ? (not htfBearish) : true   // block buy if HTF is clearly bearish
+bool htfAllowSell = useHTFFilter ? (not htfBullish) : true   // block sell if HTF is clearly bullish
+
+// --- Dual EMA Cross on current timeframe
 bool dualEmaBuyOK  = useDualEmaBuy  ? (ema20 > ema50) : true
 bool dualEmaSellOK = useDualEmaSell ? (ema20 < ema50) : true
 
-// --- FILTER 2: Slow EMA Slope direction
+// --- Slow EMA Slope direction
 bool emaSlopeUp   = requireEmaSlope ? (ema50 > ema50[emaSlopeLookback]) : true
 bool emaSlopeDown = requireEmaSlope ? (ema50 < ema50[emaSlopeLookback]) : true
 
-// Combined trend conditions
-bool isUptrend   = useTrendFilter ? (close > ema50 and emaSlopeUp   and dualEmaBuyOK)  : true
-bool isDowntrend = useTrendFilter ? (close < ema50 and emaSlopeDown and dualEmaSellOK) : true
+// Combined trend conditions — HTF alignment added
+bool isUptrend   = useTrendFilter ? (close > ema50 and emaSlopeUp   and dualEmaBuyOK  and htfAllowBuy)  : htfAllowBuy
+bool isDowntrend = useTrendFilter ? (close < ema50 and emaSlopeDown and dualEmaSellOK and htfAllowSell) : htfAllowSell
 
 calcInsideBar(h0, l0, h1, l1, isStrict) =>
     isStrict ? (h0 < h1 and l0 > l1) : (h0 <= h1 and l0 >= l1 and (h0 < h1 or l0 > l1))
