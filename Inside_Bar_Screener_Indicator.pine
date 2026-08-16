@@ -17,9 +17,11 @@ atrBufferMult  = input.float(0.3, "Stop Loss ATR Buffer Multiplier", minval=0.0,
 rrRatio        = input.float(2.0, "Risk to Reward Ratio (R:R)", minval=0.5, step=0.1, group=GROUP_PATTERN)
 
 // Trend Filter Inputs
-useTrendFilter = input.bool(true, "Use Trend Filter (EMA 50)", group=GROUP_TREND)
-emaPeriod      = input.int(50, "EMA Length", minval=1, group=GROUP_TREND)
-requireEmaSlope= input.bool(true, "Require EMA Slope Alignment (Strong Trend Only)", group=GROUP_TREND, tooltip="Ensures EMA is sloping UP for Buys and DOWN for Sells to filter sideways choppy markets.")
+useTrendFilter   = input.bool(true, "Use Trend Filter (EMA 50)", group=GROUP_TREND)
+emaPeriod        = input.int(50, "Slow EMA Length (Trend)", minval=1, group=GROUP_TREND)
+emaPeriodFast    = input.int(20, "Fast EMA Length (Signal)", minval=1, group=GROUP_TREND, tooltip="Used alongside Slow EMA. BUY only when Fast EMA > Slow EMA (uptrend). SELL only when Fast EMA < Slow EMA (downtrend). Prevents false sells during pullbacks.")
+useDualEma       = input.bool(true, "Dual EMA Cross Filter (Prevents False Signals)", group=GROUP_TREND, tooltip="BUY requires Fast EMA > Slow EMA (golden cross zone). SELL requires Fast EMA < Slow EMA (death cross zone). This stops selling into an uptrend pullback.")
+requireEmaSlope  = input.bool(true, "Require EMA Slope Alignment (Strong Trend Only)", group=GROUP_TREND, tooltip="Ensures Slow EMA is sloping UP for Buys and DOWN for Sells to filter sideways choppy markets.")
 emaSlopeLookback = input.int(3, "EMA Slope Lookback (bars)", minval=1, maxval=20, group=GROUP_TREND, tooltip="Higher = stricter trend filter. 3 bars works well for both daily and weekly. Higher values may miss early reversals.")
 
 // Signal Quality Filter Inputs
@@ -68,16 +70,24 @@ sym20 = input.symbol("NSE:BANKNIFTY", "Stock 20", group=GROUP_SCREENER)
 // ==========================================
 // 2. ROBUST PATTERN & FAKEY FILTER LOGIC
 // ==========================================
-ema50 = ta.ema(close, emaPeriod)
-atr14 = ta.atr(14)
-volMA = ta.sma(volume, volumeMA)
+ema50     = ta.ema(close, emaPeriod)
+ema20     = ta.ema(close, emaPeriodFast)
+atr14     = ta.atr(14)
+volMA     = ta.sma(volume, volumeMA)
 
-// --- FILTER 1: Stronger EMA Slope (uses user-defined lookback, not hardcoded 3)
+// --- FILTER 1: Dual EMA Cross — prevents selling into an uptrend pullback
+// BUY zone  = fast EMA above slow EMA (golden cross)
+// SELL zone = fast EMA below slow EMA (death cross)
+bool dualEmaBuyOK  = useDualEma ? (ema20 > ema50) : true
+bool dualEmaSellOK = useDualEma ? (ema20 < ema50) : true
+
+// --- FILTER 2: Slow EMA Slope direction
 bool emaSlopeUp   = requireEmaSlope ? (ema50 > ema50[emaSlopeLookback]) : true
 bool emaSlopeDown = requireEmaSlope ? (ema50 < ema50[emaSlopeLookback]) : true
 
-bool isUptrend   = useTrendFilter ? (close > ema50 and emaSlopeUp)   : true
-bool isDowntrend = useTrendFilter ? (close < ema50 and emaSlopeDown) : true
+// Combined trend conditions
+bool isUptrend   = useTrendFilter ? (close > ema50 and emaSlopeUp   and dualEmaBuyOK)  : true
+bool isDowntrend = useTrendFilter ? (close < ema50 and emaSlopeDown and dualEmaSellOK) : true
 
 calcInsideBar(h0, l0, h1, l1, isStrict) =>
     isStrict ? (h0 < h1 and l0 > l1) : (h0 <= h1 and l0 >= l1 and (h0 < h1 or l0 > l1))
@@ -117,7 +127,8 @@ if isSellBreakout
 // Current bar Inside Bar Setup (Consolidation)
 bool isCurrentIB = calcInsideBar(high, low, high[1], low[1], strictIB)
 
-plot(showEmaLine and useTrendFilter ? ema50 : na, title="Trend 50 EMA", color=color.new(color.blue, 20), linewidth=2)
+plot(showEmaLine and useTrendFilter ? ema50 : na, title="Slow EMA (Trend)", color=color.new(color.blue, 20), linewidth=2)
+plot(showEmaLine and useTrendFilter ? ema20 : na, title="Fast EMA (Signal)", color=color.new(color.orange, 30), linewidth=1)
 
 // ==========================================
 // 3. ACCURATE TRADE LEVELS & LINES
