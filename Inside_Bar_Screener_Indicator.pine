@@ -104,24 +104,26 @@ if isBuyBreakout and (signalMode == "Breakout Triggers Only (BUY/SELL)" or signa
     float risk   = entryP - slP
     float tpP    = entryP + (risk * rrRatio)
 
-    string labelTxt = "🚀 CONFIRMED BUY\nEntry: " + str.tostring(entryP, "#.##") + 
-                      "\nSL: " + str.tostring(slP, "#.##") + 
+    string labelTxt = "▲ CONFIRMED BUY\nEntry: " + str.tostring(entryP, "#.##") + 
+                      "\nSL:    " + str.tostring(slP, "#.##") + 
                       "\nTarget: " + str.tostring(tpP, "#.##")
     
-    label.new(bar_index, low, text=labelTxt, style=label.style_label_up, 
-              color=color.green, textcolor=color.white, size=size.small)
+    // Clean box label below the candle — no confusing arrow tail
+    label.new(bar_index, low - atr14 * 0.5, text=labelTxt,
+              style=label.style_label_upper_left,
+              color=color.new(color.green, 10), textcolor=color.white, size=size.normal)
 
     if showActiveLines
         line.delete(entryLine), line.delete(slLine), line.delete(tpLine)
         label.delete(entryLabel), label.delete(slLabel), label.delete(tpLabel)
         
-        entryLine  := line.new(bar_index - 2, entryP, bar_index + 15, entryP, color=color.blue, width=2, style=line.style_dashed)
-        slLine     := line.new(bar_index - 2, slP,    bar_index + 15, slP,    color=color.red,  width=2, style=line.style_solid)
-        tpLine     := line.new(bar_index - 2, tpP,    bar_index + 15, tpP,    color=color.green,width=2, style=line.style_solid)
+        entryLine  := line.new(bar_index - 2, entryP, bar_index + 15, entryP, color=color.blue,  width=2, style=line.style_dashed)
+        slLine     := line.new(bar_index - 2, slP,    bar_index + 15, slP,    color=color.red,   width=2, style=line.style_solid)
+        tpLine     := line.new(bar_index - 2, tpP,    bar_index + 15, tpP,    color=color.lime,  width=2, style=line.style_solid)
         
-        entryLabel := label.new(bar_index + 15, entryP, "BUY @ " + str.tostring(entryP, "#.##"), color=color.blue, textcolor=color.white, style=label.style_label_left, size=size.small)
-        slLabel    := label.new(bar_index + 15, slP,    "SL @ " + str.tostring(slP, "#.##"),   color=color.red,  textcolor=color.white, style=label.style_label_left, size=size.small)
-        tpLabel    := label.new(bar_index + 15, tpP,    "Target @ " + str.tostring(tpP, "#.##"), color=color.green, textcolor=color.white, style=label.style_label_left, size=size.small)
+        entryLabel := label.new(bar_index + 15, entryP, "BUY @ " + str.tostring(entryP, "#.##"),    color=color.new(color.blue, 20),  textcolor=color.white, style=label.style_label_left, size=size.normal)
+        slLabel    := label.new(bar_index + 15, slP,    "SL @ "  + str.tostring(slP,    "#.##"),    color=color.new(color.red,  20),  textcolor=color.white, style=label.style_label_left, size=size.normal)
+        tpLabel    := label.new(bar_index + 15, tpP,    "Target @ " + str.tostring(tpP, "#.##"),    color=color.new(color.lime, 20),  textcolor=color.white, style=label.style_label_left, size=size.normal)
 
 // 2. CONFIRMED SELL BREAKOUT SIGNAL
 if isSellBreakout and (signalMode == "Breakout Triggers Only (BUY/SELL)" or signalMode == "Both")
@@ -131,24 +133,34 @@ if isSellBreakout and (signalMode == "Breakout Triggers Only (BUY/SELL)" or sign
     float risk   = slP - entryP
     float tpP    = entryP - (risk * rrRatio)
 
-    string labelTxt = "🔻 CONFIRMED SELL\nEntry: " + str.tostring(entryP, "#.##") + 
-                      "\nSL: " + str.tostring(slP, "#.##") + 
+    string labelTxt = "▼ CONFIRMED SELL\nEntry: " + str.tostring(entryP, "#.##") + 
+                      "\nSL:    " + str.tostring(slP, "#.##") + 
                       "\nTarget: " + str.tostring(tpP, "#.##")
     
-    label.new(bar_index, high, text=labelTxt, style=label.style_label_down, 
-              color=color.red, textcolor=color.white, size=size.small)
+    // Clean box label above the candle — no confusing arrow tail
+    label.new(bar_index, high + atr14 * 0.5, text=labelTxt,
+              style=label.style_label_lower_left,
+              color=color.new(color.red, 10), textcolor=color.white, size=size.normal)
 
     if showActiveLines
         line.delete(entryLine), line.delete(slLine), line.delete(tpLine)
         label.delete(entryLabel), label.delete(slLabel), label.delete(tpLabel)
         
-        entryLine  := line.new(bar_index - 2, entryP, bar_index + 15, entryP, color=color.blue, width=2, style=line.style_dashed)
-        slLine     := line.new(bar_index - 2, slP,    bar_index + 15, slP,    color=color.red,  width=2, style=line.style_solid)
-        tpLine     := line.new(bar_index - 2, tpP,    bar_index + 15, tpP,    color=color.green,width=2, style=line.style_solid)
+        entryLine  := line.new(bar_index - 2, entryP, bar_index + 15, entryP, color=color.blue,   width=2, style=line.style_dashed)
+        slLine     := line.new(bar_index - 2, slP,    bar_index + 15, slP,    color=color.orange,  width=2, style=line.style_solid)
+        tpLine     := line.new(bar_index - 2, tpP,    bar_index + 15, tpP,    color=color.aqua,    width=2, style=line.style_solid)
         
-        entryLabel := label.new(bar_index + 15, entryP, "SELL @ " + str.tostring(entryP, "#.##"), color=color.blue, textcolor=color.white, style=label.style_label_left, size=size.small)
-        slLabel    := label.new(bar_index + 15, slP,    "SL @ " + str.tostring(slP, "#.##"),     color=color.red,  textcolor=color.white, style=label.style_label_left, size=size.small)
-        tpLabel    := label.new(bar_index + 15, tpP,    "Target @ " + str.tostring(tpP, "#.##"), color=color.green, textcolor=color.white, style=label.style_label_left, size=size.small)
+        entryLabel := label.new(bar_index + 15, entryP, "SELL @ " + str.tostring(entryP, "#.##"),  color=color.new(color.blue,   20), textcolor=color.white, style=label.style_label_left, size=size.normal)
+        slLabel    := label.new(bar_index + 15, slP,    "SL @ "  + str.tostring(slP,    "#.##"),    color=color.new(color.orange, 20), textcolor=color.white, style=label.style_label_left, size=size.normal)
+        tpLabel    := label.new(bar_index + 15, tpP,    "Target @ " + str.tostring(tpP, "#.##"),    color=color.new(color.aqua,   20), textcolor=color.white, style=label.style_label_left, size=size.normal)
+
+// Distinct Arrow Shapes for clear directional signals (separate from the info label)
+plotshape(isBuyBreakout  and (signalMode == "Breakout Triggers Only (BUY/SELL)" or signalMode == "Both"),
+          title="BUY Arrow", style=shape.arrowup, location=location.belowbar,
+          color=color.lime, size=size.large)
+plotshape(isSellBreakout and (signalMode == "Breakout Triggers Only (BUY/SELL)" or signalMode == "Both"),
+          title="SELL Arrow", style=shape.arrowdown, location=location.abovebar,
+          color=color.red, size=size.large)
 
 // Small Dot for Inside Bar Setup (Consolidation)
 plotshape(isCurrentIB and (signalMode == "Inside Bar Setups Only" or signalMode == "Both"), title="Inside Bar Setup", style=shape.circle, location=location.abovebar, color=color.yellow, size=size.tiny)
