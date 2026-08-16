@@ -19,10 +19,11 @@ rrRatio        = input.float(2.0, "Risk to Reward Ratio (R:R)", minval=0.5, step
 // Trend Filter Inputs
 useTrendFilter   = input.bool(true, "Use Trend Filter (EMA 50)", group=GROUP_TREND)
 emaPeriod        = input.int(50, "Slow EMA Length (Trend)", minval=1, group=GROUP_TREND)
-emaPeriodFast    = input.int(20, "Fast EMA Length (Signal)", minval=1, group=GROUP_TREND, tooltip="Used alongside Slow EMA. BUY only when Fast EMA > Slow EMA (uptrend). SELL only when Fast EMA < Slow EMA (downtrend). Prevents false sells during pullbacks.")
-useDualEma       = input.bool(true, "Dual EMA Cross Filter (Prevents False Signals)", group=GROUP_TREND, tooltip="BUY requires Fast EMA > Slow EMA (golden cross zone). SELL requires Fast EMA < Slow EMA (death cross zone). This stops selling into an uptrend pullback.")
+emaPeriodFast    = input.int(20, "Fast EMA Length (Signal)", minval=1, group=GROUP_TREND, tooltip="Used for Dual EMA cross filter. Fast EMA crossing above Slow EMA = uptrend. Below = downtrend.")
+useDualEmaBuy    = input.bool(false, "Dual EMA Filter for BUY Signals", group=GROUP_TREND, tooltip="OFF (default): Allows BUY signals even when EMA20 < EMA50. This catches reversal breakouts after a downtrend (inside bar breaks UP after a red mother bar). Turn ON only if you want strict trend-following buys only.")
+useDualEmaSell   = input.bool(true,  "Dual EMA Filter for SELL Signals", group=GROUP_TREND, tooltip="ON (default): Blocks SELL signals when EMA20 > EMA50. Prevents false sells during uptrend pullbacks (like Cipla). SELL only fires in confirmed death-cross zone.")
 requireEmaSlope  = input.bool(true, "Require EMA Slope Alignment (Strong Trend Only)", group=GROUP_TREND, tooltip="Ensures Slow EMA is sloping UP for Buys and DOWN for Sells to filter sideways choppy markets.")
-emaSlopeLookback = input.int(3, "EMA Slope Lookback (bars)", minval=1, maxval=20, group=GROUP_TREND, tooltip="Higher = stricter trend filter. 3 bars works well for both daily and weekly. Higher values may miss early reversals.")
+emaSlopeLookback = input.int(3, "EMA Slope Lookback (bars)", minval=1, maxval=20, group=GROUP_TREND, tooltip="Higher = stricter trend filter. 3 bars works well for both daily and weekly.")
 
 // Signal Quality Filter Inputs
 // TIP: For DAILY charts, tighten these to reduce noise.
@@ -75,11 +76,11 @@ ema20     = ta.ema(close, emaPeriodFast)
 atr14     = ta.atr(14)
 volMA     = ta.sma(volume, volumeMA)
 
-// --- FILTER 1: Dual EMA Cross — prevents selling into an uptrend pullback
-// BUY zone  = fast EMA above slow EMA (golden cross)
-// SELL zone = fast EMA below slow EMA (death cross)
-bool dualEmaBuyOK  = useDualEma ? (ema20 > ema50) : true
-bool dualEmaSellOK = useDualEma ? (ema20 < ema50) : true
+// --- FILTER 1: Dual EMA Cross — SEPARATE toggles for BUY and SELL
+// BUY:  Default OFF → allows reversal buys after downtrends (bearish mother bar + upside breakout)
+// SELL: Default ON  → blocks false sells during uptrend pullbacks (Cipla-type false signal fix)
+bool dualEmaBuyOK  = useDualEmaBuy  ? (ema20 > ema50) : true
+bool dualEmaSellOK = useDualEmaSell ? (ema20 < ema50) : true
 
 // --- FILTER 2: Slow EMA Slope direction
 bool emaSlopeUp   = requireEmaSlope ? (ema50 > ema50[emaSlopeLookback]) : true
