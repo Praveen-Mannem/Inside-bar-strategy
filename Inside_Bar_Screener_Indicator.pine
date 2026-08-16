@@ -20,15 +20,17 @@ rrRatio        = input.float(2.0, "Risk to Reward Ratio (R:R)", minval=0.5, step
 useTrendFilter = input.bool(true, "Use Trend Filter (EMA 50)", group=GROUP_TREND)
 emaPeriod      = input.int(50, "EMA Length", minval=1, group=GROUP_TREND)
 requireEmaSlope= input.bool(true, "Require EMA Slope Alignment (Strong Trend Only)", group=GROUP_TREND, tooltip="Ensures EMA is sloping UP for Buys and DOWN for Sells to filter sideways choppy markets.")
-emaSlopeLookback = input.int(5, "EMA Slope Lookback (bars)", minval=1, maxval=20, group=GROUP_TREND, tooltip="Higher = stricter trend filter. Default 5 bars is good for daily. Use 3 for weekly.")
+emaSlopeLookback = input.int(3, "EMA Slope Lookback (bars)", minval=1, maxval=20, group=GROUP_TREND, tooltip="Higher = stricter trend filter. 3 bars works well for both daily and weekly. Higher values may miss early reversals.")
 
 // Signal Quality Filter Inputs
+// TIP: For DAILY charts, tighten these to reduce noise.
+// For WEEKLY charts, keep defaults — weekly setups are rarer and volume is naturally lower.
 useCooldown      = input.bool(true,  "Enable Signal Cooldown (No Repeat Signals)", group=GROUP_QUALITY, tooltip="Prevents multiple signals firing back-to-back. Only 1 signal per cooldown period.")
-cooldownBars     = input.int(10,     "Cooldown Period (bars)",  minval=3, maxval=50, group=GROUP_QUALITY, tooltip="Minimum bars between signals. 10 bars = ~2 weeks on daily.")
-useVolumeFilter  = input.bool(true,  "Require Above-Average Volume on Breakout", group=GROUP_QUALITY, tooltip="Breakout candle volume must exceed the N-bar average. Filters low-conviction breakouts.")
-volumeMA         = input.int(20,     "Volume MA Period (bars)", minval=5, maxval=50, group=GROUP_QUALITY)
-useMotherBarSize = input.bool(true,  "Require Significant Mother Bar Size (ATR Filter)", group=GROUP_QUALITY, tooltip="Mother bar range must be at least N x ATR. Ignores tiny, meaningless inside bars.")
-motherBarMult    = input.float(0.8,  "Minimum Mother Bar Size (x ATR)", minval=0.2, maxval=3.0, step=0.1, group=GROUP_QUALITY, tooltip="0.8 = mother bar must be at least 80% of average ATR. Increase to filter more aggressively.")
+cooldownBars     = input.int(5,      "Cooldown Period (bars)",  minval=1, maxval=50, group=GROUP_QUALITY, tooltip="Minimum bars between same-direction signals. 5 bars = ~1 week on daily, ~5 weeks on weekly. Increase to 10+ for daily noise reduction.")
+useVolumeFilter  = input.bool(false, "Require Above-Average Volume on Breakout", group=GROUP_QUALITY, tooltip="Enable for daily to filter low-conviction breakouts. Keep OFF for weekly — weekly volume is naturally variable.")
+volumeMA         = input.int(10,     "Volume MA Period (bars)", minval=5, maxval=50, group=GROUP_QUALITY)
+useMotherBarSize = input.bool(false, "Require Significant Mother Bar Size (ATR Filter)", group=GROUP_QUALITY, tooltip="Enable for daily to ignore tiny inside bars. Keep OFF for weekly — weekly mother bars are already large by nature.")
+motherBarMult    = input.float(0.5,  "Minimum Mother Bar Size (x ATR)", minval=0.1, maxval=3.0, step=0.1, group=GROUP_QUALITY, tooltip="Mother bar range must be >= N x ATR. 0.5 is gentle. Raise to 1.0+ for aggressive daily filtering.")
 
 // Visual Display Settings
 signalMode     = input.string("Breakout Triggers Only (BUY/SELL)", "Chart Signal Mode", options=["Breakout Triggers Only (BUY/SELL)", "Inside Bar Setups Only", "Both"], group=GROUP_DISPLAY)
