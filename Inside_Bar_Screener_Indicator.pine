@@ -96,16 +96,21 @@ bool rawBuyBreakout  = isPrevInsideBar and (useConfirmedClose ? (close > high[2]
 // For Sell: Candle MUST CLOSE below Mother Bar Low AND be a Bearish Red Candle (close < open)
 bool rawSellBreakout = isPrevInsideBar and (useConfirmedClose ? (close < low[2] and close < open) : (low < low[2])) and isDowntrend and motherBarBigEnough and volumeOK
 
-// --- FILTER 4: Signal Cooldown — prevent back-to-back signals
-var int lastSignalBar = -999
-bool cooldownOK = useCooldown ? (bar_index - lastSignalBar >= cooldownBars) : true
+// --- FILTER 4: Signal Cooldown — SEPARATE trackers for BUY and SELL
+// This ensures a BUY cooldown never blocks a valid SELL signal (critical fix for weekly)
+var int lastBuyBar  = -999
+var int lastSellBar = -999
+bool buyCooldownOK  = useCooldown ? (bar_index - lastBuyBar  >= cooldownBars) : true
+bool sellCooldownOK = useCooldown ? (bar_index - lastSellBar >= cooldownBars) : true
 
-bool isBuyBreakout  = rawBuyBreakout  and cooldownOK
-bool isSellBreakout = rawSellBreakout and cooldownOK
+bool isBuyBreakout  = rawBuyBreakout  and buyCooldownOK
+bool isSellBreakout = rawSellBreakout and sellCooldownOK
 
-// Update cooldown tracker when a signal fires
-if isBuyBreakout or isSellBreakout
-    lastSignalBar := bar_index
+// Update respective cooldown tracker when a signal fires
+if isBuyBreakout
+    lastBuyBar  := bar_index
+if isSellBreakout
+    lastSellBar := bar_index
 
 // Current bar Inside Bar Setup (Consolidation)
 bool isCurrentIB = calcInsideBar(high, low, high[1], low[1], strictIB)
@@ -245,13 +250,21 @@ getTableTextSize(szStr) =>
         "Small" => size.small
         => size.normal
 
-populateRow(tbl, rowIdx, symStr, targetTF, txtSz) =>
-    if str.length(symStr) > 0
-        string cleanTicker = str.replace(symStr, "NSE:", "")
-        [status, bgCol, txtCol] = getSymbolData(symStr, targetTF)
-        table.cell(tbl, 0, rowIdx, cleanTicker, bgcolor=color.new(color.navy, 40), text_color=color.white, text_size=txtSz)
+populateDualRow(tbl, rowIdx, symA, symB, targetTF, txtSz) =>
+    // Left panel (col 0-2)
+    if str.length(symA) > 0
+        string tickA = str.replace(symA, "NSE:", "")
+        [stA, bgA, txA] = getSymbolData(symA, targetTF)
+        table.cell(tbl, 0, rowIdx, tickA, bgcolor=color.new(color.navy, 40), text_color=color.white, text_size=txtSz)
         table.cell(tbl, 1, rowIdx, targetTF, bgcolor=color.new(color.navy, 60), text_color=color.white, text_size=txtSz)
-        table.cell(tbl, 2, rowIdx, status, bgcolor=bgCol, text_color=txtCol, text_size=txtSz)
+        table.cell(tbl, 2, rowIdx, stA, bgcolor=bgA, text_color=txA, text_size=txtSz)
+    // Right panel (col 3-5)
+    if str.length(symB) > 0
+        string tickB = str.replace(symB, "NSE:", "")
+        [stB, bgB, txB] = getSymbolData(symB, targetTF)
+        table.cell(tbl, 3, rowIdx, tickB, bgcolor=color.new(color.navy, 40), text_color=color.white, text_size=txtSz)
+        table.cell(tbl, 4, rowIdx, targetTF, bgcolor=color.new(color.navy, 60), text_color=color.white, text_size=txtSz)
+        table.cell(tbl, 5, rowIdx, stB, bgcolor=bgB, text_color=txB, text_size=txtSz)
 
 var table screenTable = na
 
@@ -259,33 +272,31 @@ if showScreener and barstate.islast
     string targetTF = (screenerTF == "Daily (D)") ? "D" : ((screenerTF == "Weekly (W)") ? "W" : timeframe.period)
     string txtSz = getTableTextSize(textSize)
     
-    screenTable := table.new(position=getTablePosition(tablePos), columns=3, rows=21, 
+    // 6-column dual-panel table: stocks 1-10 on left, 11-20 on right
+    // This halves the height compared to a single 20-row column
+    screenTable := table.new(position=getTablePosition(tablePos), columns=6, rows=11,
                              bgcolor=color.new(color.black, 10), border_width=1, border_color=color.gray)
     
-    table.cell(screenTable, 0, 0, "NSE Stock", bgcolor=color.blue, text_color=color.white, text_size=txtSz)
-    table.cell(screenTable, 1, 0, "Timeframe", bgcolor=color.blue, text_color=color.white, text_size=txtSz)
-    table.cell(screenTable, 2, 0, "Trade Signal Status", bgcolor=color.blue, text_color=color.white, text_size=txtSz)
+    // Headers — left panel
+    table.cell(screenTable, 0, 0, "NSE Stock",  bgcolor=color.blue, text_color=color.white, text_size=txtSz)
+    table.cell(screenTable, 1, 0, "TF",         bgcolor=color.blue, text_color=color.white, text_size=txtSz)
+    table.cell(screenTable, 2, 0, "Signal",     bgcolor=color.blue, text_color=color.white, text_size=txtSz)
+    // Headers — right panel
+    table.cell(screenTable, 3, 0, "NSE Stock",  bgcolor=color.new(color.purple, 30), text_color=color.white, text_size=txtSz)
+    table.cell(screenTable, 4, 0, "TF",         bgcolor=color.new(color.purple, 30), text_color=color.white, text_size=txtSz)
+    table.cell(screenTable, 5, 0, "Signal",     bgcolor=color.new(color.purple, 30), text_color=color.white, text_size=txtSz)
 
-    populateRow(screenTable, 1,  sym01, targetTF, txtSz)
-    populateRow(screenTable, 2,  sym02, targetTF, txtSz)
-    populateRow(screenTable, 3,  sym03, targetTF, txtSz)
-    populateRow(screenTable, 4,  sym04, targetTF, txtSz)
-    populateRow(screenTable, 5,  sym05, targetTF, txtSz)
-    populateRow(screenTable, 6,  sym06, targetTF, txtSz)
-    populateRow(screenTable, 7,  sym07, targetTF, txtSz)
-    populateRow(screenTable, 8,  sym08, targetTF, txtSz)
-    populateRow(screenTable, 9,  sym09, targetTF, txtSz)
-    populateRow(screenTable, 10, sym10, targetTF, txtSz)
-    populateRow(screenTable, 11, sym11, targetTF, txtSz)
-    populateRow(screenTable, 12, sym12, targetTF, txtSz)
-    populateRow(screenTable, 13, sym13, targetTF, txtSz)
-    populateRow(screenTable, 14, sym14, targetTF, txtSz)
-    populateRow(screenTable, 15, sym15, targetTF, txtSz)
-    populateRow(screenTable, 16, sym16, targetTF, txtSz)
-    populateRow(screenTable, 17, sym17, targetTF, txtSz)
-    populateRow(screenTable, 18, sym18, targetTF, txtSz)
-    populateRow(screenTable, 19, sym19, targetTF, txtSz)
-    populateRow(screenTable, 20, sym20, targetTF, txtSz)
+    // Rows 1-10: sym01-sym10 vs sym11-sym20
+    populateDualRow(screenTable, 1,  sym01, sym11, targetTF, txtSz)
+    populateDualRow(screenTable, 2,  sym02, sym12, targetTF, txtSz)
+    populateDualRow(screenTable, 3,  sym03, sym13, targetTF, txtSz)
+    populateDualRow(screenTable, 4,  sym04, sym14, targetTF, txtSz)
+    populateDualRow(screenTable, 5,  sym05, sym15, targetTF, txtSz)
+    populateDualRow(screenTable, 6,  sym06, sym16, targetTF, txtSz)
+    populateDualRow(screenTable, 7,  sym07, sym17, targetTF, txtSz)
+    populateDualRow(screenTable, 8,  sym08, sym18, targetTF, txtSz)
+    populateDualRow(screenTable, 9,  sym09, sym19, targetTF, txtSz)
+    populateDualRow(screenTable, 10, sym10, sym20, targetTF, txtSz)
 
 // ==========================================
 // 5. ACCURATE ALERTS
